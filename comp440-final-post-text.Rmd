@@ -1,0 +1,119 @@
+---
+title: "InstagramPostTextAnalysis"
+author: "Rohit Bagda"
+date: "April 25, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Data Sets and Libraries
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidytext)
+library(tidyverse)
+library(stringr)
+library(knitr)
+library(kableExtra)
+```
+
+```{r}
+finalChicagoData<-read.csv("FinalChicagoData.csv") %>% mutate(text=as.character(text))
+```
+
+## Post Cleaning for Text Analysis
+```{r}
+cleanPosts <- function(text) {
+  clean_texts <- text %>%
+    gsub("<.*>", "", .) %>% # remove emojis
+    gsub("&amp;", "", .) %>% # remove &
+    gsub("@\\w+", "", .) %>% # remove at people
+    gsub("[^[:alnum:][:space:]#]", "", .) %>% # remove punctuation without removing Hashtags 
+    gsub("#\\w+", "", .) %>% #remove all hashtag words
+    gsub("[[:digit:]]", "", .) %>% # remove digits
+    gsub("http\\w+", "", .) %>% # remove html links
+    iconv(from = "latin1", to = "ASCII", sub="") %>% # remove emoji and bizarre signs
+    gsub("[ \t]{2,}", " ", .) %>% # remove unnecessary spaces
+    gsub("^\\s+|\\s+$", "", .) %>% # remove unnecessary spaces
+    tolower
+    
+clean_texts <- str_replace_all(clean_texts, "#[a-z,A-Z]*", "")
+  return(clean_texts)
+}
+```
+
+```{r}
+finalChicagoData$cleanText <- cleanPosts(finalChicagoData$text)
+```   
+
+## Split posts into words.
+```{r}
+word_df <- finalChicagoData %>% 
+  unnest_tokens(word, cleanText) %>% 
+  anti_join(stop_words)
+```
+
+## Build TfIdf Matrix for a 
+```{r}
+makeTfidf <- function(df) {
+  tfidfMatrix <- df %>% 
+    dplyr::count(postID, word) %>% 
+    bind_tf_idf(word, postID, n)
+return(tfidfMatrix)
+}
+```
+
+```{r}
+getTfIdf <- function(districtName, df) {
+  df2 <- df %>% filter(district==districtName)
+  tf_idf <- makeTfidf(df2)
+  return(tf_idf)
+}
+```
+
+
+## Most Popular words in Chicago
+```{r}
+chicagoFrequency <- word_df %>% 
+  dplyr::count(word) %>% 
+  arrange(desc(n))
+
+head(chicagoFrequency, 11)
+```
+
+## Get TfIdf for each District
+```{r}
+Central <- getTfIdf("Central", word_df) %>% arrange(desc(tf_idf))
+FarNorthSide <- getTfIdf("Far North Side", word_df) %>% arrange(desc(tf_idf))
+FarSoutheastSide <- getTfIdf("Far Southeast Side", word_df) %>% arrange(desc(tf_idf))
+FarSouthwestSide <- getTfIdf("Far Southwest Side", word_df) %>% arrange(desc(tf_idf))
+NorthSide <- getTfIdf("North Side", word_df) %>% arrange(desc(tf_idf))
+NorthwestSide <- getTfIdf("Northwest Side", word_df) %>% arrange(desc(tf_idf))
+SouthSide <- getTfIdf("South Side", word_df) %>% arrange(desc(tf_idf))
+SouthwestSide <- getTfIdf("Southwest Side", word_df) %>% arrange(desc(tf_idf))
+WestSide <- getTfIdf("West Side", word_df) %>% arrange(desc(tf_idf))
+```
+
+## Get top 5 most unique words for each district
+```{r}
+CentralTableData <- head(Central$word, 5)
+FarNorthSideData <- head(FarNorthSide$word, 5)
+FarSoutheastSideData <- head(FarSoutheastSide$word, 5)
+FarSouthwestSideData <- head(FarSouthwestSide$word, 5)
+NorthwestSideData <- head(NorthwestSide$word, 5)
+NorthSideData <- head(NorthSide$word, 5)
+SouthSideData <- head(SouthSide$word, 5)
+SouthwestSideData <- head(SouthwestSide$word, 5)
+WestSideData <- head(WestSide$word, 5)
+
+
+tableData <-rbind(CentralTableData, FarNorthSideData, FarSoutheastSideData, FarSouthwestSideData, NorthwestSideData, NorthSideData, SouthSideData, SouthwestSideData, WestSideData)
+
+colnames(tableData) <- c("Word 1","Word 2","Word 3","Word 4","Word 5")
+rownames(tableData) <- c("Central", "Far North Side", "Far Southeast Side", "Far Southwest Side", "Northwest Side", "North Side", "South Side", "Southwest Side", "West Side")
+
+knitr::kable(tableData, "html") %>%  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+

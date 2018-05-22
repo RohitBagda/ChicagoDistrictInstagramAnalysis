@@ -1,0 +1,84 @@
+---
+title: "Hashtag analysis"
+author: "Julia Romare"
+date: '2018-05-04'
+output: html_document
+---
+
+```{r}
+library("rjson") #https://stackoverflow.com/questions/2617600/importing-data-from-a-json-file-into-r
+library("tidyverse")
+library("tidytext")
+library("dplyr")
+library("stringi")
+library("wordcloud")
+```
+
+
+```{r}
+dataFull <- 
+  read.csv("/Users/juliaromare/Downloads/FinalChicagoData.csv") %>%
+  mutate(text=as.character(text)) %>%
+  mutate(hashtags=stri_extract_all_regex(text,"#\\S+"))  #Extracting all substrings starting with #
+```
+
+```{r}
+dataFull = subset(dataFull, !is.na(hashtags))
+
+#Converting HASHTAGS from list to character type.
+dataFull$hashtags = gsub("c\\(","",dataFull$hashtags)
+dataFull$hashtags = gsub("\\)","",dataFull$hashtags)
+dataFull$hashtags = gsub("<\\S+>","",dataFull$hashtags)
+dataFull$hashtags = gsub("\\.","",dataFull$hashtags)
+dataFull$hashtags = gsub('\\"',"",dataFull$hashtags)
+
+dataFull =
+  dataFull %>%
+  unnest_tokens(hashtag,hashtags) 
+
+#Neighborhood and district names.
+searchedForHashtags = c("rogersparkchicago","westridgechicago","uptownchicago","lincolnsquarechicago","edisonparkchicago","norwoodparkchicago","jeffersonparkchicago","northparkchicago","albanyparkchicago","oharechicago","edgewaterchicago","northcenterchicago","lakeviewchicago","lincolnparkchicago","avondalechicago","logansquarechicago","portageparkchicago","irvingparkchicago","dunningchicago","belmontcraginchicago","hermosachicago","chicagoloop","humboldtparkchicago","westtownchicago","austinchicago","westgarfieldpark","eastgarfieldpark","nearwestsidechicago","northlawndale","southlawndale","lowerwestsidechicago","garfieldridge","archerheights","brightonpark","mckinleyparkchicago","newcitychicago","gagepark","clearingchicago","chicagolawn","westenglewood","englewoodchicago","armoursquare","douglaschicago","grandboulevardchicago","kenwoodchicago","washingtonparkchicago","hydeparkchicago","woodlawnchicago","southshorechicago","bridgeportchicago","greatergrandcrossing","auburngresham","beverlychicago","mountgreenwood","morganparkchicago","chathamchicago","southsidechicago","calumetheights","roselandchicago","pullmanchicago","southdeering","eastsidechicago","westpullman","hegewisch","chicago","southside", "illinois", "eastside", "roseland", "southside", "westside", "eastside", "englewood", "avondale","mckinleypark", "logansquare","irvingpark","ed","u", "xed", "xa0", "norwoodpark","beverly","xbc","xbd","southdeeringchicago","southshore","bridgeport","montclare","belmontheights","belmontheights","hydepark","southloop","portagepark","jeffparkchicago","humboldtpark","norwoodparkcoc","hermosa", "dunning","belmontcraigin") 
+
+dataFull <-
+  dataFull[! dataFull$hashtag %in% searchedForHashtags, ] #Removing hashtags that we scrapted Instagram with.
+
+
+#Selecting the five most popular hashtags in each district.
+dataFullDistrict <-
+  dataFull %>%
+  group_by(district, hashtag) %>%
+  summarise(n=n())%>%
+  arrange(desc(n)) %>%
+  top_n(5)
+
+#Matrix of five most popular hashtags in each district.
+cbind(c("Central","chitown","chicagoland","chicagolife","windycity"),
+      c("Far North","parkridgeillinois","avedachicago","modernsalon","matissehairsalon","matissehairstudio"),
+      c("Far Southeast","art", "chicagoart","saygrace", "community", "giveback"),
+      c("Far Southwest","architect","architecture","architektur","chicagorealestate","realestate"),
+      c("North","chicagogram","behindthechair","balayage","modernsalon","chicagocolorist"),
+      c("Northwest","thefriendlywash","tacos","muaythai","chicagomexicanrestaurant","nailsbyromelia"),
+      c("South","nailfashion","chicagonails","archi_ologie","oldhouselove","architecture"),
+      c("Southwest","newcity","backoftheyards","canaryville","leclairecourts","sleepyhollow"),
+      c("West","littlevillage","stilettodance","stilettoarmy","stilettodancestudios","chicagopoledance"))
+```
+
+```{r}
+#Word cloud of most popular hashtags in the entire Chicago.
+ dataChicago <- 
+  dataFull %>% 
+  group_by(hashtag) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n)) %>%
+  top_n(100)
+
+wordcloud(dataChicago$hashtag,            # column of words
+          dataChicago$n,                  # column of frequencies
+          scale=c(1.6,0.2),               # range of font sizes of words
+          random.order=FALSE,             # position the most popular words first
+          colors=brewer.pal(8, "Dark2"))  # Color palette
+  
+```
+
+
+

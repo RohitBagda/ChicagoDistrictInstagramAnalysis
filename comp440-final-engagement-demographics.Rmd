@@ -1,0 +1,302 @@
+---
+title: "Engagement and Demographic Analysis"
+author: "Hannah Sonsalla"
+date: "May 4, 2018"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(ggmap)
+library(rvest)
+library(tidyverse)
+library(sf)
+library(viridis) # new color scheme
+library(stringr)
+```
+
+# Chicago Neighborhoods Shapefile
+Throughout our analysis, we created Chicago choropleth maps for average likes per post per district, average number of comments per post per district, per capita income per district and majority race per district.  To do so, we utilized a Chicago Community Areas shapefile taken from the Chicago Data Portal:
+https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-Community-Areas-current-/cauq-8yn6
+
+```{r}
+chicagoCommunityAreas <- st_read("ChicagoCommunityAreas/geo_export_205a87a5-eb5f-4759-bdff-374abe5c5093.shp", quiet = TRUE)
+```
+
+# Data Manipulation: Districts
+
+## Our Chicago Instagram Post Data
+```{r}
+finalChicagoData <- 
+  read.csv("finalChicagoData.csv") %>% 
+  mutate(text = as.character(text))
+```
+
+## Neighborhood & District Assignments
+First, we must define which neighborhoods fall into the 9 Chicago districts.
+
+```{r}
+FarNorthSide <- c("ROGERS PARK", "WEST RIDGE", "UPTOWN", "LINCOLN SQUARE", "EDISON PARK", "NORWOOD PARK", "JEFFERSON PARK", "FOREST GLEN", "NORTH PARK", "ALBANY PARK", "OHARE", "EDGEWATER")
+
+NorthSide <- c("NORTH CENTER", "LAKE VIEW", "LINCOLN PARK", "AVONDALE", "LOGAN SQUARE")
+
+NorthwestSide <- c("PORTAGE PARK", "IRVING PARK", "DUNNING", "MONTCLARE", "BELMONT CRAGIN", "HERMOSA")
+
+CentralNearNorthNearSouthSide <- c("NEAR NORTH SIDE", "LOOP", "NEAR SOUTH SIDE")
+
+WestAndNearWestSide <- c("HUMBOLDT PARK", "WEST TOWN", "AUSTIN", "WEST GARFIELD PARK", "EAST GARFIELD PARK", "NEAR WEST SIDE", "NORTH LAWNDALE", "SOUTH LAWNDALE", "LOWER WEST SIDE")
+
+SouthwestSide <- c("GARFIELD RIDGE", "ARCHER HEIGHTS", "BRIGHTON PARK", "MCKINLEY PARK", "NEW CITY", "WEST ELSDON", "GAGE PARK", "CLEARING", "WEST LAWN", "CHICAGO LAWN", "WEST ENGLEWOOD", "ENGLEWOOD")
+
+SouthSide <- c("ARMOUR SQUARE", "DOUGLAS", "OAKLAND", "FULLER PARK", "GRAND BOULEVARD", "KENWOOD", "WASHINGTON PARK", "HYDE PARK", "WOODLAWN", "SOUTH SHORE", "BRIDGEPORT", "GREATER GRAND CROSSING")
+
+FarSouthwestSide <- c("ASHBURN", "AUBURN GRESHAM", "BEVERLY", "WASHINGTON HEIGHTS", "MOUNT GREENWOOD", "MORGAN PARK")
+
+FarSouthSide <- c("CHATHAM", "AVALON PARK", "SOUTH CHICAGO", "BURNSIDE", "CALUMET HEIGHTS", "ROSELAND", "PULLMAN", "SOUTH DEERING", "EAST SIDE", "WEST PULLMAN", "RIVERDALE", "HEGEWISCH")
+```
+
+## Engagement Levels
+Users can engage with another user’s post by commenting or liking a post. We took all of the district posts and compared them by mean likes per post and mean comments per post. 
+
+```{r}
+# mean likes per post in districts
+meanDistrictLikes <-
+  finalChicagoData %>% 
+  group_by(district) %>% 
+  summarise(avgLikes = mean(likes)) 
+
+# mean comments per post in districts
+meanDistrictCommentCounts <-
+  finalChicagoData %>% 
+  group_by(district) %>% 
+  summarise(avgComments = mean(commentCount)) 
+```
+
+## Income Chicago Demographics
+Our income data comes from the city of Chicago Data Portal and can be found: https://data.cityofchicago.org/browse?q=Chicago%20community%20areas&sortBy=relevance&anonymous=true
+
+We used data from this file related to per capita income in each neighborhood.
+
+```{r}
+SocioeconomicChicagoDistrict <- read.csv("CensusDataSocioeconomicChicago2008_2012.csv")
+
+# mean per capita income in neighborhoods
+PerCapitaIncomeChicagoNeighborhood <-
+  SocioeconomicChicagoDistrict %>% 
+  mutate(community = toupper(COMMUNITY.AREA.NAME)) %>% 
+  filter(community != "CHICAGO") %>% 
+  mutate(community = ifelse(community == "O'HARE", "OHARE", community)) %>% 
+  mutate(community = ifelse(community == "WASHINGTON HEIGHT", "WASHINGTON HEIGHTS", community)) %>% 
+  mutate(community = ifelse(community == "MONTCLAIRE", "MONTCLARE", community)) %>% 
+  select(community, PER.CAPITA.INCOME)
+
+# mean per capita income in districts
+PerCapitaIncomeChicagoDistrict <-
+  PerCapitaIncomeChicagoNeighborhood %>% 
+  mutate(district = ifelse(community %in% FarNorthSide, "Far North Side", NA)) %>%
+  mutate(district = ifelse(community %in% NorthSide, "North Side", district)) %>% 
+  mutate(district = ifelse(community %in% NorthwestSide, "Northwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% CentralNearNorthNearSouthSide, "Central", district)) %>% 
+  mutate(district = ifelse(community %in% WestAndNearWestSide, "West Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthwestSide, "Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthSide, "South Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthwestSide, "Far Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthSide, "Far Southeast Side", district)) %>% 
+  group_by(district) %>% 
+  summarise(PER.CAPITA.INCOME = mean(PER.CAPITA.INCOME))
+```
+
+## Race and Age Chicago Demographics
+The race and age data for Chicago neighorhoods is from: 
+https://datahub.cmap.illinois.gov/dataset/community-data-snapshots-raw-data
+
+We used data from this file to determine majority race and majority age group for Chicago neighborhoods and districts.
+
+```{r}
+RaceAgeChicagoNeighborhood <- read.csv("ReferenceCCA20112015.csv")
+```
+
+### Majority Race
+```{r}
+# majority race in neighborhoods
+RaceChicagoNeighborhood <- 
+  RaceAgeChicagoNeighborhood %>% 
+  mutate(community = toupper(GEOG)) %>%
+  mutate(community = ifelse(community == "O'HARE", "OHARE", community)) %>% 
+  mutate(community = ifelse(community == "THE LOOP", "LOOP", community)) %>% 
+  select(community, TOT_POP, WHITE, HISP, BLACK, ASIAN, OTHER) %>% 
+  mutate(WHITE = WHITE/TOT_POP, 
+         HISP = HISP/TOT_POP,
+         BLACK = BLACK/TOT_POP,
+         ASIAN = ASIAN/TOT_POP,
+         OTHER = OTHER/TOT_POP) %>% 
+  rownames_to_column('id') %>%  # creates an ID number
+  gather(raceMajority, max, WHITE:OTHER) %>% 
+  group_by(id) %>% 
+  slice(which.max(max))
+
+# majority race in districts
+RaceChicagoDistrict <- 
+  RaceAgeChicagoNeighborhood %>% 
+  mutate(community = toupper(GEOG)) %>%
+  mutate(community = ifelse(community == "O'HARE", "OHARE", community)) %>% 
+  mutate(community = ifelse(community == "THE LOOP", "LOOP", community)) %>% 
+  select(community, TOT_POP, WHITE, HISP, BLACK, ASIAN, OTHER) %>% 
+  mutate(district = ifelse(community %in% FarNorthSide, "Far North Side", NA)) %>%
+  mutate(district = ifelse(community %in% NorthSide, "North Side", district)) %>% 
+  mutate(district = ifelse(community %in% NorthwestSide, "Northwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% CentralNearNorthNearSouthSide, "Central", district)) %>% 
+  mutate(district = ifelse(community %in% WestAndNearWestSide, "West Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthwestSide, "Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthSide, "South Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthwestSide, "Far Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthSide, "Far Southeast Side", district)) %>% 
+  group_by(district) %>% 
+  summarise(TOT_POP = sum(TOT_POP), WHITE = sum(WHITE), HISP = sum(HISP), BLACK = sum(BLACK), ASIAN = sum(ASIAN), OTHER = sum(OTHER)) %>% 
+  rownames_to_column('id') %>%  # creates an ID number
+  gather(raceMajority, max, WHITE:OTHER) %>% 
+  group_by(id) %>% 
+  slice(which.max(max)) %>% 
+  select(district, TOT_POP, raceMajority)
+```
+
+### Majority Age Group
+```{r}
+# majority age in neighborhoods
+AgeChicagoNeighborhood <-
+  RaceAgeChicagoNeighborhood %>% 
+  mutate(community = toupper(GEOG)) %>%
+  mutate(community = ifelse(community == "O'HARE", "OHARE", community)) %>% 
+  mutate(community = ifelse(community == "THE LOOP", "LOOP", community)) %>% 
+  select(community, TOT_POP, UND19, A20_34, A35_49, A50_64, A65_79, OV80) %>% 
+  mutate(UND19 = UND19/TOT_POP, 
+         A20_34 = A20_34/TOT_POP,
+         A35_49 = A35_49/TOT_POP,
+         A50_64 = A50_64/TOT_POP,
+         A65_79 = A65_79/TOT_POP,
+         OV80 = OV80/TOT_POP) %>%
+  rownames_to_column('id') %>%  # creates an ID number
+  gather(ageMajority, max, UND19:OV80) %>% 
+  group_by(id) %>% 
+  slice(which.max(max))
+
+AgeChicagoNeighborhood$ageMajority<- factor(AgeChicagoNeighborhood$ageMajority, levels = c('UND19','A20_34','A35_49', 'A50_64', 'A65_79', 'OV80'))
+
+# majority age in districts
+AgeChicagoDistrict <- 
+  RaceAgeChicagoNeighborhood %>% 
+  mutate(community = toupper(GEOG)) %>%
+  mutate(community = ifelse(community == "O'HARE", "OHARE", community)) %>% 
+  mutate(community = ifelse(community == "THE LOOP", "LOOP", community)) %>% 
+  select(community, TOT_POP, UND19, A20_34, A35_49, A50_64, A65_79, OV80) %>%
+  mutate(district = ifelse(community %in% FarNorthSide, "Far North Side", NA)) %>%
+  mutate(district = ifelse(community %in% NorthSide, "North Side", district)) %>% 
+  mutate(district = ifelse(community %in% NorthwestSide, "Northwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% CentralNearNorthNearSouthSide, "Central", district)) %>% 
+  mutate(district = ifelse(community %in% WestAndNearWestSide, "West Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthwestSide, "Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthSide, "South Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthwestSide, "Far Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthSide, "Far Southeast Side", district)) %>% 
+  group_by(district) %>% 
+  summarise(TOT_POP = sum(TOT_POP), UND19 = sum(UND19), A20_34 = sum(A20_34), A35_49 = sum(A35_49), A65_79 = sum(A65_79), OV80 = sum(OV80)) %>% 
+  rownames_to_column('id') %>%  # creates an ID number
+  gather(ageMajority, max, UND19:OV80) %>% 
+  group_by(id) %>% 
+  slice(which.max(max)) %>% 
+  select(district, ageMajority)
+
+AgeChicagoDistrict$ageMajority<- factor(AgeChicagoDistrict$ageMajority, levels = c('UND19','A20_34','A35_49', 'A50_64', 'A65_79', 'OV80'))
+```
+
+## Merge outside data & calculations with shapefile data
+```{r}
+# convert shape file to data frame
+chicagoDataframe <- as.data.frame(chicagoCommunityAreas)
+
+chicagoDistrictDataframe <-
+  chicagoDataframe %>% 
+  # add district info
+  mutate(district = ifelse(community %in% FarNorthSide, "Far North Side", NA)) %>%
+  mutate(district = ifelse(community %in% NorthSide, "North Side", district)) %>% 
+  mutate(district = ifelse(community %in% NorthwestSide, "Northwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% CentralNearNorthNearSouthSide, "Central", district)) %>% 
+  mutate(district = ifelse(community %in% WestAndNearWestSide, "West Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthwestSide, "Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% SouthSide, "South Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthwestSide, "Far Southwest Side", district)) %>% 
+  mutate(district = ifelse(community %in% FarSouthSide, "Far Southeast Side", district)) %>% 
+  # instagram data
+  left_join(meanDistrictLikes, by = "district") %>% 
+  left_join(meanDistrictCommentCounts, by = "district") %>% 
+  left_join(PerCapitaIncomeChicagoDistrict, by = "district") %>% 
+  left_join(RaceChicagoDistrict, by = "district") %>% 
+  left_join(AgeChicagoDistrict, by = "district") %>% 
+  mutate(TOT_POP_PERC = TOT_POP / 2716812)
+
+chicagoDistrictList <- as.data.frame.list(chicagoDistrictDataframe)
+```
+
+#Plots
+## Chicago Neighborhoods by District Plot
+```{r}
+ggplot(chicagoDistrictList) +
+  geom_sf(aes(fill = district), color = "black") +
+  coord_sf(crs = st_crs(chicagoDistrictList), datum = NA) +
+  scale_fill_manual( values=c("violet","green", "lightblue", "mediumseagreen", "cyan","slateblue","yellow", "darkorange", "indianred")) +
+  ggtitle("Districts in Chicago") 
+```
+
+## Percentage of Chicago Population Per District
+```{r}
+ggplot(chicagoDistrictList) +
+  geom_sf(aes(fill = TOT_POP_PERC), color = "black") +
+  coord_sf(crs = st_crs(chicagoDistrictList), datum = NA) +
+  scale_fill_viridis("TOT_POP_PERC") +
+  ggtitle("Percentage of Chicago Population Per District") 
+```
+
+## Mean Likes Per Post In Chicago District Plot
+```{r}
+ggplot(chicagoDistrictList) +
+  geom_sf(aes(fill = avgLikes), color = "black") +
+  coord_sf(crs = st_crs(chicagoDistrictList), datum = NA) +
+  scale_fill_viridis("avgLikes") +
+  ggtitle("Mean Likes Per Post In Chicago Districts") 
+```
+
+## Mean Comments Per Post In Chicago Districts Plot
+```{r}
+ggplot(chicagoDistrictList) +
+  geom_sf(aes(fill = avgComments), color = "black") +
+  coord_sf(crs = st_crs(chicagoDistrictList), datum = NA) +
+  scale_fill_viridis("avgComments") +
+  ggtitle("Mean Comments Per Post In Chicago Districts") 
+```
+
+## Mean Per Capita Income Per Post In Chicago Districts Plot
+```{r}
+ggplot(chicagoDistrictList) +
+  geom_sf(aes(fill = PER.CAPITA.INCOME), color = "black") +
+  coord_sf(crs = st_crs(chicagoDistrictList), datum = NA) +
+  scale_fill_viridis("PER.CAPITA.INCOME") +
+  labs(title = "Per Capita Income In Chicago Districts")
+```
+
+## Majority Race In Chicago District Plot
+```{r}
+ggplot(chicagoDistrictList) +
+  geom_sf(aes(fill = raceMajority), color = "black") +
+  coord_sf(crs = st_crs(chicagoDistrictList), datum = NA) +
+  scale_fill_viridis("Race", discrete = TRUE) +
+  labs(title = "Majority Race in Chicago Districts") 
+```
+
+## Majority Age In Chicago District Plot
+```{r}
+ggplot(chicagoDistrictList) +
+  geom_sf(aes(fill = ageMajority), color = "black") +
+  coord_sf(crs = st_crs(chicagoDistrictList), datum = NA) +
+  scale_fill_viridis("Age", discrete = TRUE) +
+  labs(title = "Majority Age in Chicago Districts") 
+```

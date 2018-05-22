@@ -1,0 +1,150 @@
+---
+title: "Instagram Data Scraping"
+author: "Hannah Sonsalla"
+date: '2018-05-04'
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(rjson)
+```
+
+# Chicago Instagram Dataset
+
+We scraped Instagram for Chicago neighborhood posts by both hashtags and location.  For all 77 neighborhoods, we went to Instagram and searched for whether the neighborhood had an associated hashtag (e.g. #lincolnsquarechicago). If such hashtag did not exist, or if there were too few posts, we identified the location id (e.g. #riverdalechiago only had 5 posts at the point of scraping, and had location id: 82296784).  Subsequently, if a post had an empty text-field, we manually excluded those in our collection.  Our final Chicago Instagram dataset has ~4500 posts with text, like and comment count. 
+
+# Scraping Instagram Data from hidden JSON files
+
+Instagram's API does not allow for data scraping of public posts.  However, after much searching we discovered that we can obtain hidden JSON files using the extension "?__a=1" at the end of an Instagram url.  For example, the JSON file for the first page of most recent posts that include #northcenterchicago can be found by using the Instagram explore feature with the addition of "?__a=1" at end of the url.
+
+```{r}
+northcenterchicago = rjson::fromJSON(file="https://www.instagram.com/explore/tags/northcenterchicago/?__a=1")
+```
+
+This can also be done using the explore function with a location.  Below is the JSON url for Forest Glen, Chicago which has a location id of 247904404.
+
+```{r}
+forestglenchicago = rjson::fromJSON(file="https://www.instagram.com/explore/locations/247904404/forest-glen-chicago/?__a=1")
+```
+
+However, this only gives us the first page of the most recent results (~20-50 posts).  To get the next page of results, we must find whether the JSON file variable has_next_page = TRUE and from here determine the end_curser key.  We append "&max_id=end_curser" to end of the previous url to gather the next page of results.
+
+```{r}
+# has_next_page
+northcenterchicago$graphql$hashtag$edge_hashtag_to_media$page_info$has_next_page
+# end_cursor
+northcenterchicago$graphql$hashtag$edge_hashtag_to_media$page_info$end_cursor
+```
+
+The new url for page 2 would be: 
+
+northcenterchicago2 = rjson::fromJSON(file="https://www.instagram.com/explore/tags/northcenterchicago/?__a=1&max_id=end_cursor")
+
+## Instagram Post Information
+We can collect information about each instagram post including post ID, text, timestamp, number of likes and comment count from these JSON files.
+
+```{r}
+# Post ID
+northcenterchicago$graphql$hashtag$edge_hashtag_to_media$edges[[1]]$node$shortcode
+# Text
+northcenterchicago$graphql$hashtag$edge_hashtag_to_media$edges[[1]]$node$edge_media_to_caption$edges[[1]]$node$text
+# Timestamp 
+northcenterchicago$graphql$hashtag$edge_hashtag_to_media$edges[[1]]$node$taken_at_timestamp
+# Number of likes 
+northcenterchicago$graphql$hashtag$edge_hashtag_to_media$edges[[1]]$node$edge_liked_by$count
+# Comment count 
+northcenterchicago$graphql$hashtag$edge_hashtag_to_media$edges[[1]]$node$edge_media_to_comment$count
+```
+
+## Instagram Data Scraping Functions
+To extract all of these features (post ID, text, timestamp, number of likes and comment count) for each post within a given JSON file, we created two different sets of functions - both of which take an Instagram JSON file as input.  The first set loops through all Instagram posts for a given hashtag and creates a dataframe.  Similarly, the second set loops through all Instagram posts for a given location id and creates a dataframe with our variables of interest.  However, since some posts do not have a text field, we had to create functions that could filter out these unwanted posts.  These functions are instagramHashtagFilterDataFrame and instagramLocationFilterDataFrame.  The post number must be edited within these functions where the comments indicate. 
+
+### Instagram Hashtag Functions
+```{r}
+instagramHashtagDataFrame <- function(data){
+  # new dataframe to store results
+  df <- data.frame(postID=numeric(), text=character(), timestamp=character(),likes=numeric(), commentCount = numeric())
+  
+  # loop through all recent posts
+  for (i in 1:length(data$graphql$hashtag$edge_hashtag_to_media$edges)) {
+    postID = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$shortcode
+    text = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$edge_media_to_caption$edges[[1]]$node$text
+    timestamp = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$taken_at_timestamp
+    likes = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$edge_liked_by$count
+    commentCount = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$edge_media_to_comment$count
+    post <- list(postID = postID, text = text, timestamp = timestamp, likes = likes, commentCount = commentCount)
+    df = rbind(df,post, stringsAsFactors=FALSE) 
+  }
+  return(df)
+}
+```
+
+```{r}
+instagramHashtagFilterDataFrame <- function(data){
+  df <- data.frame(postID=numeric(), text=character(), timestamp=character(),likes=numeric(), commentCount = numeric())
+  for (i in 1:length(data$graphql$hashtag$edge_hashtag_to_media$edges)) {
+    # EDIT: do not include posts 60
+    if (i != 60) {
+      postID = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$shortcode
+      text = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$edge_media_to_caption$edges[[1]]$node$text
+      timestamp = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$taken_at_timestamp
+      likes = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$edge_liked_by$count
+      commentCount = data$graphql$hashtag$edge_hashtag_to_media$edges[[i]]$node$edge_media_to_comment$count
+      post <- list(postID = postID, text = text, timestamp = timestamp, likes = likes, commentCount = commentCount)
+      df = rbind(df,post, stringsAsFactors=FALSE)
+    }
+  }
+   return(df)
+}
+```
+
+### Instagram Location Functions
+```{r}
+instagramLocationDataFrame <- function(data){
+  df <- data.frame(postID=numeric(), text=character(), timestamp=character(),likes=numeric(), commentCount = numeric())
+  for (i in 1:length(data$graphql$location$edge_location_to_media$edges)) {
+    print(i)
+    postID = data$graphql$location$edge_location_to_media$edges[[i]]$node$shortcode
+    text = data$graphql$location$edge_location_to_media$edges[[i]]$node$edge_media_to_caption$edges[[1]]$node$text
+    timestamp = data$graphql$location$edge_location_to_media$edges[[i]]$node$taken_at_timestamp
+    likes = data$graphql$location$edge_location_to_media$edges[[i]]$node$edge_liked_by$count
+    commentCount = data$graphql$location$edge_location_to_media$edges[[i]]$node$edge_media_to_comment$count
+    post <- list(postID = postID, text = text, timestamp = timestamp, likes = likes, commentCount = commentCount)
+    df = rbind(df,post, stringsAsFactors=FALSE)
+
+  }
+   return(df)
+}
+```
+
+```{r}
+instagramLocationFilterDataFrame <- function(data){
+  df <- data.frame(postID=numeric(), text=character(), timestamp=character(),likes=numeric(), commentCount = numeric())
+  for (i in 1:length(data$graphql$location$edge_location_to_media$edges)) {
+    # EDIT: do not include posts 11 and 13
+    if (i!=11 & i!=13) {
+      print(i)
+      postID = data$graphql$location$edge_location_to_media$edges[[i]]$node$shortcode
+      text = data$graphql$location$edge_location_to_media$edges[[i]]$node$edge_media_to_caption$edges[[1]]$node$text
+      timestamp = data$graphql$location$edge_location_to_media$edges[[i]]$node$taken_at_timestamp
+      likes = data$graphql$location$edge_location_to_media$edges[[i]]$node$edge_liked_by$count
+      commentCount = data$graphql$location$edge_location_to_media$edges[[i]]$node$edge_media_to_comment$count
+      post <- list(postID = postID, text = text, timestamp = timestamp, likes = likes, commentCount = commentCount)
+      df = rbind(df,post, stringsAsFactors=FALSE)
+    }
+  }
+   return(df)
+}
+```
+
+### Example
+Here is an example of how to use these functions for gathering Instagram data for posts that contain #northcenterchicago: 
+
+```{r}
+# JSON file for posts including #northcenterchicago
+northcenterchicago = rjson::fromJSON(file="https://www.instagram.com/explore/tags/northcenterchicago/?__a=1")
+northCenterChicagoData <- instagramHashtagDataFrame(northcenterchicago) %>% mutate(neighborhood = "NORTH CENTER")
+
+northCenterChicagoData
+```
